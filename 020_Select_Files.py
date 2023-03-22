@@ -50,8 +50,9 @@ with st.form(key='data'):
     df=pd.DataFrame(data, columns=['Selected', 'File Name', 'Bits', 'Hydrophone'])
     df.Hydrophone=pd.Categorical(df.Hydrophone, hydrophones)
     df.Bits=pd.Categorical(df.Bits, bits)
-    df=df.sort_values('File Name')
-    df=df.reset_index(drop=True)
+    #This causes severe issues with the name fo the files, swithcing the around. I'll wait 
+    #df=df.sort_values('File Name')
+    #df=df.reset_index(drop=True) 
 
     edited_df = st.experimental_data_editor(df)
 
