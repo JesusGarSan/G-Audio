@@ -4,10 +4,35 @@ import numpy as np
 import pandas as pd
 import scipy
 import io
+from datetime import datetime
 
 from audio import audio
 
 #--------------------------
+
+def write_parameters(top_col3):
+    file = open('STFT Parameters.txt', 'w')
+    file.write(f"## Short Time Fourier Transform:\n")
+    file.write(f"nperseg = {st.session_state['nperseg']}\n")
+    file.write(f"noverlap = {st.session_state['noverlap']}\n")
+    file.write(f"window_index = {st.session_state['window_index']}\n")
+    file.write(f"\n")
+    file.write(f"## Frequency Range:")
+    file.write(f"[{st.session_state['low_freq']}, {st.session_state['high_freq']}] Hz")
+    file.close()
+
+
+    file = open('STFT Parameters.txt', 'r')
+    return file
+
+def display_save_parameters_button(file, position):
+
+    file_name = f"STFT Parameters_{str(datetime.now())[:-7]}.txt"
+
+    with file as f:
+        position.download_button('Download STFT Parameters', f,file_name=file_name, use_container_width=True)  # Defaults to 'text/plain'
+        file.close()
+    
 
 def parameters(audio_object):
 
@@ -18,6 +43,15 @@ def parameters(audio_object):
             audio_object=audio_object_list[0]
     except:
         audio_object_list=[audio_object]
+
+    if 'temp' not in st.session_state:
+        st.session_state['temp'] = False
+
+
+
+
+    col1, col2, top_col3 = st.columns(3)
+
 
     with st.form(key='parameters'):
         
@@ -70,6 +104,12 @@ def parameters(audio_object):
         submit_button = st.form_submit_button(label='Run')
 
     if submit_button or st.session_state['STFT_ran']:
+
+        # We create the file with the STFT parameters and allow the user to download it
+        file = write_parameters(top_col3)
+        display_save_parameters_button(file, top_col3)
+        
+
         st.session_state['STFT_ran']=True
 
         for i in range(len(audio_object_list)):
@@ -151,11 +191,12 @@ def SPL_vs_time(audio_object, frequency, ponderation, xlim=False):
         plt.xlim(xlim[0], xlim[1])
     
     for i in range(len(audio_object_list)):
-        aux = audio_object_list[i].SPL_vs_time(frequency=frequency, ponderation=ponderation)
-        if aux[0]==0 and len(aux)<2:
-            st.write('Choose a higher ponderation. The current value is too low');
-        elif aux[0]==1 and len(aux)<2:
-            st.write('Choose a lower ponderation. The current value is too high')
+        if st.session_state['to_plot'][i]==True:
+            aux = audio_object_list[i].SPL_vs_time(frequency=frequency, ponderation=ponderation)
+            if aux[0]==0 and len(aux)<2:
+                st.write('Choose a higher ponderation. The current value is too low');
+            elif aux[0]==1 and len(aux)<2:
+                st.write('Choose a lower ponderation. The current value is too high')
     plt.legend()
     plt.grid(True)
     st.pyplot(fig)
@@ -343,7 +384,6 @@ if uploaded_file:
     elif options =='SPL vs. Time':
         st.header('SPL vs. Time')
 
-        print(st.session_state['stats'])
         freq_resolution = st.session_state['stats']['Stats'][2]
 
         try:
@@ -363,29 +403,49 @@ if uploaded_file:
         if 'ponderation' not in st.session_state:
             st.session_state['ponderation'] = 0.125
         if 'choice' not in st.session_state:
-            st.session_state['choice'] = 'All'
+            st.session_state['choice'] = False
         if 'frequency' not in st.session_state:
             st.session_state['frequency'] = False
 
-        col1, col2, col3 = st.columns(3)
 
-        st.session_state['ponderation'] =  col1.number_input('Ponderation', min_value = 0.001, value=st.session_state['ponderation'], format="%0.3f")
+
         choices=['All', 'Choose frequency:']
-        st.session_state['choice']   =  col2.selectbox('Frequency?', options=choices, index=choices.index(st.session_state['choice']))
-        if st.session_state['choice'] =='All':
-            st.session_state['frequency'] = False
-        else:
-            if st.session_state['frequency']==False: st.session_state['frequency'] = freq_fft[0]
-            st.session_state['frequency']   =  col3.number_input('', min_value = freq_fft[0], max_value=freq_fft[len(freq_fft)-1], value=st.session_state['frequency'], step=freq_resolution*1.0)
-        #if Pts == 0: Pts = 'all'
-        audio_object = st.session_state['audio_object'] 
+        st.session_state['choice']   =  st.checkbox('Choose Frequency', value=st.session_state['choice'])
 
-        col1, col2 = st.columns(2)
-        st.session_state["SPL_vs_time_xlim"][0] = col1.number_input('Lowest time:', value=st.session_state["SPL_vs_time_xlim"][0], step=0.1)
-        st.session_state["SPL_vs_time_xlim"][1] = col2.number_input('Highest time:', value=st.session_state["SPL_vs_time_xlim"][1], step=0.1)
+        with st.form('SPL_vs_time'):
+            col1, col2 = st.columns(2)
+            st.session_state['ponderation'] =  col1.number_input('Ponderation', min_value = 0.001, value=st.session_state['ponderation'], format="%0.3f")
+            if not st.session_state['choice']:
+                st.session_state['frequency'] = False
+            else:
+                if st.session_state['frequency']==False: st.session_state['frequency'] = freq_fft[0]
+                st.session_state['frequency']   =  col2.number_input('Frequency', min_value = freq_fft[0], max_value=freq_fft[len(freq_fft)-1], value=st.session_state['frequency'], step=freq_resolution*1.0)
+            #if Pts == 0: Pts = 'all'
+            audio_object = st.session_state['audio_object'] 
 
+            col1, col2 = st.columns(2)
+            st.session_state["SPL_vs_time_xlim"][0] = col1.number_input('Lowest time:', value=st.session_state["SPL_vs_time_xlim"][0], step=0.1)
+            st.session_state["SPL_vs_time_xlim"][1] = col2.number_input('Highest time:', value=st.session_state["SPL_vs_time_xlim"][1], step=0.1)
 
-        SPL_vs_time(audio_object, frequency=st.session_state['frequency'], ponderation=st.session_state['ponderation'], xlim=st.session_state["SPL_vs_time_xlim"])
+            col1, col2 = st.columns(2)
+
+            col2col1, col2col2, col2col3, col2col4 = col2.columns(4) 
+            submit_button = col2.form_submit_button(label='Run', use_container_width=True)
+
+            try:
+                to_plot=[]
+                for i in range(len(st.session_state['chosen_file_indexes'])):
+                    if col1.checkbox(f"{audio_object[i].audio_name}", True):
+                        st.session_state['to_plot'][i] = True
+                    else:
+                        st.session_state['to_plot'][i] = False
+
+                print(st.session_state['to_plot'])
+            except:
+                print('a')
+
+        if submit_button or True:
+            SPL_vs_time(audio_object, frequency=st.session_state['frequency'], ponderation=st.session_state['ponderation'], xlim=st.session_state["SPL_vs_time_xlim"])
 
 
     elif options =='Reverb Time':
@@ -404,7 +464,7 @@ if uploaded_file:
         if 'drop' not in st.session_state:
             st.session_state['drop'] = 20
         if 'choice' not in st.session_state:
-            st.session_state['choice'] = 'All'
+            st.session_state['choice'] = False
         if 'frequency' not in st.session_state:
             st.session_state['frequency'] = False
 
