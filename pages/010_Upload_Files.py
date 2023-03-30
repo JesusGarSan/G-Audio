@@ -21,6 +21,33 @@ elif 'uploaded_files' in st.session_state and uploaded_files!=[]:
             st.session_state['calibration_parameters'].append( False )
             st.session_state['audio_name'].append('')
 
+
+
+            st.session_state['ref_audio'].append(None)
+            st.session_state['background_noise'].append(None)
+            st.session_state['audio_group'].append(None)
+            st.session_state['attributes'].append(False)
+            if 'BN_behaviour' in st.session_state:
+                st.session_state['BN_behaviour'].append(0)
+            
+
+          #  attributes=[]
+          #  while True:
+          #      try:
+          #          index= name.index('_')
+          #      except:
+          #          try:
+          #              index= name.index('.')
+          #          except:
+          #              break
+          #          
+          #      attributes.append(name[0:index])
+          #      name=name[index+1:]
+#
+          #  st.session_state['position'].append('')
+          #  st.session_state['noise'].append('')
+          #  st.session_state['iteration'].append('')
+
     if col2.button('Overwrite previously uploaded files'):
 
         st.session_state['uploaded_files'] = (uploaded_files)
@@ -30,4 +57,16 @@ elif 'uploaded_files' in st.session_state and uploaded_files!=[]:
         st.session_state['BITS'] = [24] *len(st.session_state['uploaded_files'])
         st.session_state['calibration_parameters'] = [False] *len(st.session_state['uploaded_files'])
         st.session_state['audio_name'] = [''] *len(st.session_state['uploaded_files'])
+
+
+        st.session_state['campaign'] = [''] *len(st.session_state['uploaded_files'])
+        st.session_state['position'] = [''] *len(st.session_state['uploaded_files'])
+        st.session_state['noise'] = [''] *len(st.session_state['uploaded_files'])
+        st.session_state['iteration'] = [''] *len(st.session_state['uploaded_files'])
+        
+        st.session_state['ref_audio'] = [None] *len(st.session_state['uploaded_files'])
+        st.session_state['background_noise'] = [None] *len(st.session_state['uploaded_files'])
+        st.session_state['audio_group'] = [None] *len(st.session_state['uploaded_files'])
+        st.session_state['attributes'] = [False] *len(st.session_state['uploaded_files'])
+        st.session_state['BN_behaviour'] = [0] *len(st.session_state['uploaded_files'])
 

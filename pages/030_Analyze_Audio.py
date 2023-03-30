@@ -36,13 +36,9 @@ def display_save_parameters_button(file, position):
 
 def parameters(audio_object):
 
-    try:
-        if(len(audio_object)>1):
 
-            audio_object_list=audio_object
-            audio_object=audio_object_list[0]
-    except:
-        audio_object_list=[audio_object]
+    audio_object_list=audio_object
+    audio_object=audio_object[0]
 
     if 'temp' not in st.session_state:
         st.session_state['temp'] = False
@@ -74,7 +70,7 @@ def parameters(audio_object):
         factor_nperseg =  col1.number_input('nperseg', min_value = 0, value=st.session_state['nperseg'])
         nperseg=factor_nperseg
         
-        factor_noverlap =  col2.number_input('% noverlap', min_value = 0.0, max_value=99.99, value=st.session_state['noverlap'], step=1.0)
+        factor_noverlap =  col2.number_input('% noverlap', min_value = 0.0, max_value=90.0, value=st.session_state['noverlap'], step=1.0)
         noverlap= nperseg*(factor_noverlap/100)
 
         good_windows= ['blackman', 'hann', 'parzen', 'nuttall']
@@ -102,6 +98,7 @@ def parameters(audio_object):
         high_freq=col2.number_input('Highest Frequency (Hz)', min_value = low_freq+1, max_value=f[len(f)-1], value=st.session_state['high_freq'], step=1.0)
         
         submit_button = st.form_submit_button(label='Run')
+
 
     if submit_button or st.session_state['STFT_ran']:
 
@@ -146,42 +143,173 @@ def spectogram(audio_object):
     st.pyplot(audio_object.spectogram())
     
 
+def avg_group(audio_object_list, Pts, BN=False):
+    if BN==False:
+        SPLs=[]
+        errors=[]
+        for i, audio_object in enumerate(audio_object_list):
+                if not hasattr(audio_object, 'data_freq_SPL'):   audio_object.SPL_vs_freq(Pts=Pts, time_avg=1, plot=False)
+                SPLs.append(audio_object.data_freq_SPL[1])
+                errors.append(audio_object.data_freq_SPL[2])
+
+        freq=audio_object.data_freq_SPL[0]
+        avg=np.mean(SPLs, axis=0)
+
+
+        std=np.std(SPLs, axis=0)
+        error=std/np.sqrt(len(SPLs))
+
+        return freq, avg, error
+
+    if BN==True:
+        st.markdown('DOING IT FOR BN')
+        SPLs=[]
+        errors=[]
+
+        # we have to find the background noise object
+        for i in range(len(audio_object_list)):
+            for j, background_object in enumerate(st.session_state['audio_object']):
+                if audio_object_list[i].background_noise == background_object.audio_name:
+                    st.session_state['audio_object'][j].SPL_vs_freq(source=audio_object_list[i], method='TL', Pts=Pts, plot=False)
+                    SPLs.append(st.session_state['audio_object'][j].data_freq_SPL_TL[1])
+                    errors.append(st.session_state['audio_object'][j].data_freq_SPL_TL[2])
+                    freq=st.session_state['audio_object'][j].data_freq_SPL_TL[0]
+        
+        avg=np.mean(SPLs, axis=0)
+
+        std=np.std(SPLs, axis=0)
+        error=std/np.sqrt(len(SPLs))
+
+
+        len(freq)
+        len(avg)
+        len(error)
+        return freq, avg, error
+
+
 def SPL_vs_freq(audio_object, Pts, xlim=False, ylim=False):
 
-    try:
-        if(len(audio_object)>1):
+    audio_object_list=audio_object
+    audio_object=audio_object[0]
 
-            audio_object_list=audio_object
-            audio_object=audio_object_list[0]
-    except:
-        audio_object_list=[audio_object]
     #SPL vs freq representation
     fig, ax = plt.subplots(1, figsize=(14,6))
+    fig2=False
 
     if xlim:
         plt.xlim(xlim[0], xlim[1])
     if ylim:
         plt.ylim(ylim[0], ylim[1])
     
-    #title=''
+    #-----------Ploting with refrence to Background Noises-----------
     for i in range(len(audio_object_list)):
         if st.session_state['to_plot'][i]==True:
-            audio_object_list[i].SPL_vs_freq(Pts=Pts)
-        plt.grid(True)
-    plt.legend()
+
+            if type(audio_object_list[i].background_noise)==str and (st.session_state['BN_behaviour'][i]==1 or st.session_state['BN_behaviour'][i]==2):
+                audio_object_list[i].SPL_vs_freq(Pts=Pts)
+            
+            if type(audio_object_list[i].background_noise)==str and (st.session_state['BN_behaviour'][i]==0 or st.session_state['BN_behaviour'][i]==2):
+
+                for j, object in enumerate(audio_object_list):
+                    if audio_object_list[i].background_noise == object.audio_name:
+                        audio_object_list[j].SPL_vs_freq(source=audio_object_list[i], method='TL', Pts=Pts,
+                                                        legend=f"{audio_object_list[i].audio_name}-BN")
+
+            elif type(audio_object_list[i].background_noise)!=str:
+                audio_object_list[i].SPL_vs_freq(Pts=Pts)
+
+    #-----------Ploting Audio Groups-----------
+
+    audio_groups=[]
+    for i in range(len(audio_object_list)):
+        if st.session_state['to_plot'][i]==True:
+            if type(audio_object_list[i].audio_group) == str:
+                if audio_object_list[i].audio_group not in audio_groups:
+                    audio_groups.append(audio_object_list[i].audio_group)
+        
+    if audio_groups!=[]:
+        fig4, ax = plt.subplots(1, figsize=(14,6))
+        plt.title('Audio Groups')
+
+        for index, group in enumerate(audio_groups):
+            sublist=[]
+            for i in range(len(audio_object_list)):
+                if audio_object_list[i].audio_group == group and st.session_state['to_plot'][i]==True:
+                    sublist.append(audio_object_list[i])
+
+
+            #SOLUCIÓN TMEPORAL A LA GESTION DE DATOS
+            subtract_BN_in_groups=True
+            if subtract_BN_in_groups:
+                freq, avg, error=avg_group(sublist, Pts, BN=True)
+                plt.plot(freq, avg, label=f"{group}-BN")
+            else:          
+                freq, avg, error=avg_group(sublist, Pts, BN=False)
+                plt.plot(freq, avg, label=group)
+
+            if xlim:
+                plt.xlim(xlim[0], xlim[1])
+            if ylim:
+                plt.ylim(ylim[0], ylim[1])
+            plt.fill_between(freq, avg-error, avg+error, alpha=0.5)
+            plt.grid(True)
+            plt.legend()
+
+        st.pyplot(fig4)
+    #-------------------------------------------
+
+
+
+    #Plot de atenuación
+    # -- TEMPORAL --
+    #Si detecta que solo tiene que dibujar 2 lineas, calcula la atenuación automáticamente.
+    #Detecta aquella con intensidad media mayor y la asigna como fuente
+    temp=np.array(st.session_state['to_plot'])
+    #temp
+    #f len(temp[np.where(temp==True)])==2:
+    #   idx0=np.where(temp==True)[0][0]
+    #   idx1=np.where(temp==True)[0][1]
+
+    #   st.markdown('the conditio')
+    #   if audio_object_list[idx0].background_noise == audio_object_list[idx1].audio_name:
+    #       st.markdown('the condition 1 has been met')
+    #       audio_object_list[idx0].SPL_vs_freq(source=audio_object_list[idx1] , Pts=Pts)
+    #       
+
+    #   if audio_object_list[idx1].background_noise == audio_object_list[idx0].audio_name:
+    #       st.markdown('the condition 2 has been met')
+    #       audio_object_list[idx1].SPL_vs_freq(source=audio_object_list[idx0] , Pts=Pts)
 
 
     st.pyplot(fig)
-    return fig
+    img1 = io.BytesIO()
+    plt.savefig(img1, format='png')
+
+    img2=False
+   #if len(temp[np.where(temp==True)])==2:
+   #    idx0=np.where(temp==True)[0][0]
+   #    idx1=np.where(temp==True)[0][1]
+   #    fig2, ax = plt.subplots(1, figsize=(14,6))
+   #
+   #    #-----------------------------    
+   #    if xlim:
+   #        plt.xlim(xlim[0], xlim[1])
+   #    #-----------------------------    
+   #    if np.mean(audio_object_list[idx0].signal_fft) > np.mean(audio_object_list[idx1].signal_fft):
+   #        legend=f"{audio_object_list[idx0].audio_name} - TL_{audio_object_list[idx1].audio_name}"
+   #        audio_object_list[idx1].SPL_vs_freq(source=audio_object_list[idx0], method='Source-TL' , Pts=Pts, legend=legend)
+   #    else:
+   #        legend=f"{audio_object_list[idx1].audio_name} - TL_{audio_object_list[idx0].audio_name}"
+   #        audio_object_list[idx0].SPL_vs_freq(source=audio_object_list[idx1], method='Source-TL' , Pts=Pts, legend=legend)
+
+   #    st.pyplot(fig2)
+   #    img2 = io.BytesIO()
+
+    return img1, img2
 
 def SPL_vs_time(audio_object, frequency, ponderation, xlim=False):
-    try:
-        if(len(audio_object)>1):
-
-            audio_object_list=audio_object
-            audio_object=audio_object_list[0]
-    except:
-        audio_object_list=[audio_object]
+    audio_object_list=audio_object
+    audio_object=audio_object[0]
 
 
     #SPL vs time representation
@@ -235,9 +363,9 @@ if 'chosen_file' not in st.session_state or st.session_state['chosen_file'] == [
 #-----------------------------------------------------
 
 if 'nperseg' not in st.session_state:
-    st.session_state['nperseg'] = 256
+    st.session_state['nperseg'] = 4800
 if 'noverlap' not in st.session_state:
-    st.session_state['noverlap'] = 50.0
+    st.session_state['noverlap'] = 0.0
 if 'window_index' not in st.session_state:
     st.session_state['window_index'] = 0
 if 'low_time' not in st.session_state:
@@ -252,6 +380,8 @@ if 'Pts' not in st.session_state:
     st.session_state['Pts'] = 100
 if 'STFT_ran' not in st.session_state:
     st.session_state['STFT_ran'] = True
+if 'BN_behaviour' not in st.session_state:
+    st.session_state['BN_behaviour'] = [0] *len(st.session_state['uploaded_files'])
 
 #---------------------------------------------------
 
@@ -271,13 +401,24 @@ except:
 
 if uploaded_file:
 
-    if len(st.session_state['chosen_file_indexes'])==1:
-        audio_object = audio(st.session_state['audio_name'][st.session_state['chosen_file_indexes'][0]], uploaded_file, st.session_state['calibration_parameters'][st.session_state['chosen_file_indexes'][0]])
 
-    else:
-        audio_object=[0]*len(st.session_state['chosen_file_indexes'])
-        for i,index in enumerate(st.session_state['chosen_file_indexes']):
-            audio_object[i] = audio(st.session_state['audio_name'][index], uploaded_files[index], st.session_state['calibration_parameters'][index])
+    audio_object = st.session_state['audio_object']
+
+   ##We create the audio Objects
+   #if len(st.session_state['chosen_file_indexes'])==1:
+   #    audio_object = audio(st.session_state['audio_name'][st.session_state['chosen_file_indexes'][0]], uploaded_file, st.session_state['calibration_parameters'][st.session_state['chosen_file_indexes'][0]])
+
+   #else:
+   #    audio_object=[0]*len(st.session_state['chosen_file_indexes'])
+   #    for i,index in enumerate(st.session_state['chosen_file_indexes']):
+   #        audio_object[i] = audio(st.session_state['audio_name'][index], 
+   #                                uploaded_files[index], 
+   #                                st.session_state['calibration_parameters'][index], 
+   #                                st.session_state['ref_audio'][index], 
+   #                                st.session_state['background_noise'][index], 
+   #                                st.session_state['audio_group'][index])
+
+
 
 
 
@@ -290,9 +431,9 @@ if uploaded_file:
 
 
 
-    if options =='Parameters':
+    if options == 'Parameters':
         if len(st.session_state['chosen_file_indexes'])==1:
-            st.write(f"Current Audio file: {audio_object.audio_name}")
+            st.write(f"Current Audio file: {audio_object[0].audio_name}")
         else:
             st.write(f"Current Audio files:")
             for i,index in enumerate(st.session_state['chosen_file_indexes']):
@@ -318,9 +459,25 @@ if uploaded_file:
             spectogram(audio_object_list[i])
 
             st.audio(audio_object_list[i].signal, sample_rate = audio_object_list[i].sample_rate)
+            image_name= f"Spectogram-{audio_object_list[i].audio_name}.png"
+            image_name = st.text_input('Image name:', value=image_name)
+            img = io.BytesIO()
+            plt.savefig(img, format='png')
+            save_button = st.download_button(
+                        label='Download Image',
+                        data=img,
+                        file_name=image_name,
+                        mime="image/png"
+                        )
 
     elif options =='SPL vs. Frequency':
         st.header('SPL vs. Frequency')
+
+        try:
+            if(len(audio_object)>1):
+                audio_object_list=audio_object
+        except:
+            audio_object_list=[audio_object]
 
     
         with st.form(key='SPL_vs_freq'):
@@ -335,7 +492,7 @@ if uploaded_file:
             if 'SPL_vs_freq_xlim' not in st.session_state:
                 st.session_state['SPL_vs_freq_xlim'] = [freq_fft[0], freq_fft[len(freq_fft)-1]]
             if 'SPL_vs_freq_ylim' not in st.session_state:
-                st.session_state['SPL_vs_freq_ylim'] = [0, 120]
+                st.session_state['SPL_vs_freq_ylim'] = [60, 120]
 
             st.session_state['Pts'] =  st.number_input('Number of Points. Select 0 for all', min_value = 0, value=st.session_state['Pts'])
             Pts = st.session_state['Pts']
@@ -349,36 +506,70 @@ if uploaded_file:
             st.session_state["SPL_vs_freq_ylim"][1] = col2.number_input('Highest SPL:', value=st.session_state["SPL_vs_freq_ylim"][1])
 
 
-            col1, col2 = st.columns(2)
 
+            #---------------------Selection Table----------------
+            plot_y_n=[]
+            name=[]
+            BN_options=['Apply', 'Not Apply', 'Plot Both']
+            BN=[]
+
+            #Apply: Plotea la curva - su ruido de fondo
+
+            data=[]
+            for i in range(len(st.session_state['chosen_file_indexes'])):
+                plot_y_n.append(True)
+                name.append(audio_object[i].audio_name)
+                BN.append('Apply')
+
+                data.append([ plot_y_n[i], name[i], BN[i] ])
+
+            columns=['Plot?', 'Audio Name', 'Subtract BN']
+            df=pd.DataFrame(data, columns=columns)
+            df['Subtract BN']=pd.Categorical(df['Subtract BN'], BN_options)
+            edited_df = st.experimental_data_editor(df)
+            #------------------------------------------------------
+
+
+            col1, col2 = st.columns(2)
             col2col1, col2col2, col2col3, col2col4 = col2.columns(4) 
             submit_button = col2.form_submit_button(label='Run', use_container_width=True)
 
-            try:
-                to_plot=[]
-                for i in range(len(st.session_state['chosen_file_indexes'])):
-                    if col1.checkbox(f"{audio_object[i].audio_name}", True):
-                        st.session_state['to_plot'][i] = True
-                    else:
-                        st.session_state['to_plot'][i] = False
 
-                print(st.session_state['to_plot'])
-            except:
-                print('a')
-            if submit_button or True:
-                img = SPL_vs_freq(audio_object, Pts, xlim=st.session_state["SPL_vs_freq_xlim"], ylim=st.session_state["SPL_vs_freq_ylim"])
 
-        #Download the image
-        image_name= f"SPL_vs_freq-{st.session_state['Pts']}Pts-Freq[{st.session_state['SPL_vs_freq_xlim'][0]},{st.session_state['SPL_vs_freq_xlim'][1]}]-SPL[{st.session_state['SPL_vs_freq_ylim'][0]},{st.session_state['SPL_vs_freq_ylim'][1]}].png"
-        image_name = st.text_input('Image name:', value=image_name)
-        img = io.BytesIO()
-        plt.savefig(img, format='png')
-        save_button = st.download_button(
-                    label='Download Image',
-                    data=img,
-                    file_name=image_name,
-                    mime="image/png"
-                    )
+            show_buttons=False
+            if submit_button:
+                for i in range(len( edited_df.iloc[:] )):
+                    st.session_state['to_plot'][i] = edited_df.iloc[i]['Plot?']
+                    st.session_state['BN_behaviour'][i] = BN_options.index(edited_df.iloc[i]['Subtract BN'])
+
+                img1, img2 = SPL_vs_freq(audio_object, Pts, xlim=st.session_state["SPL_vs_freq_xlim"], ylim=st.session_state["SPL_vs_freq_ylim"])
+                show_buttons=True
+
+
+
+        if show_buttons:
+            #Download the image
+            image_name= f"SPL_vs_freq-{st.session_state['Pts']}Pts-Freq[{st.session_state['SPL_vs_freq_xlim'][0]},{st.session_state['SPL_vs_freq_xlim'][1]}]-SPL[{st.session_state['SPL_vs_freq_ylim'][0]},{st.session_state['SPL_vs_freq_ylim'][1]}].png"
+            image_name = st.text_input('Image name:', value=image_name)
+            #img = io.BytesIO()
+            #plt.savefig(img, format='png')
+            save_button = st.download_button(
+                        label='Download Image',
+                        data=img1,
+                        file_name=image_name,
+                        mime="image/png"
+                        )
+            if img2:
+                image_name= f"Source-TL_freq-{st.session_state['Pts']}Pts-Freq[{st.session_state['SPL_vs_freq_xlim'][0]},{st.session_state['SPL_vs_freq_xlim'][1]}]-SPL[{st.session_state['SPL_vs_freq_ylim'][0]},{st.session_state['SPL_vs_freq_ylim'][1]}].png"
+                image_name = st.text_input('2nd Image name:', value=image_name, key='img2')
+                img2 = io.BytesIO()
+                plt.savefig(img2, format='png')
+                save_button = st.download_button(
+                            label='Download Image',
+                            data=img2,
+                            file_name=image_name,
+                            mime="image/png"
+                            )
         
 
     elif options =='SPL vs. Time':
@@ -433,20 +624,29 @@ if uploaded_file:
             submit_button = col2.form_submit_button(label='Run', use_container_width=True)
 
             try:
-                to_plot=[]
                 for i in range(len(st.session_state['chosen_file_indexes'])):
                     if col1.checkbox(f"{audio_object[i].audio_name}", True):
                         st.session_state['to_plot'][i] = True
                     else:
                         st.session_state['to_plot'][i] = False
 
-                print(st.session_state['to_plot'])
             except:
-                print('a')
+                pass
 
-        if submit_button or True:
+        if submit_button or False:
             SPL_vs_time(audio_object, frequency=st.session_state['frequency'], ponderation=st.session_state['ponderation'], xlim=st.session_state["SPL_vs_time_xlim"])
 
+        #Download the image
+        image_name= f"SPL_vs_time-Ponderation{st.session_state['ponderation']}-Time[{st.session_state['SPL_vs_time_xlim'][0]},{st.session_state['SPL_vs_time_xlim'][1]}].png"
+        image_name = st.text_input('Image name:', value=image_name)
+        img = io.BytesIO()
+        plt.savefig(img, format='png')
+        save_button = st.download_button(
+                    label='Download Image',
+                    data=img,
+                    file_name=image_name,
+                    mime="image/png"
+                    )
 
     elif options =='Reverb Time':
         st.header('Reverb Time')
