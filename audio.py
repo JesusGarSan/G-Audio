@@ -9,7 +9,7 @@ import pandas as pd
 
 # Clase de Audio
 class audio:
-    def __init__(self, audio_name ,path, calibration_parameters):
+    def __init__(self, audio_name ,path, calibration_parameters, reference_audio=None, background_noise=None, audio_group=None):
         self.audio_name=audio_name
         self.path=path
 
@@ -22,6 +22,10 @@ class audio:
         self.duration=len(self.signal)/self.sample_rate
         self.time=np.linspace(0, len(self.signal)/(self.sample_rate) , len(self.signal))
         self.espectogram_data=None
+
+        self.reference_audio=reference_audio
+        self.background_noise=background_noise
+        self.audio_group=audio_group
 
     # Recorta el audio al intervalo indicado en segundos
     def shorten_audio(self, duration=[0,3]):
@@ -156,64 +160,87 @@ class audio:
         #plt.show()
         return SPL
     
-    def SPL_vs_freq(self, source=False, method='log', legend=False, Pts='all', time_avg=1):
+    def SPL_vs_freq(self, source=False, method='TL', legend=False, Pts='all', time_avg=1, plot=True):
         if(Pts=='all'): Pts=len(self.signal_fft)
         step=int(len(self.signal_fft)/Pts)
         if(legend==False): legend=self.audio_name
-        plt.ylabel('SPL (dB re 1μPa)')
-        plt.xlabel('Frequency (Hz)')
+        if plot:
+            plt.ylabel('SPL (dB re 1μPa)')
+            plt.xlabel('Frequency (Hz)')
         
-        SPLs=[]
-        time_step = np.abs(self.time_fft-time_avg).argmin()
-        if time_step > len(self.time_fft)/2: time_step = len(self.time_fft) -1
-        j=0
+        # SPL vs freq without reference
+        if (source==False):
+            SPLs=[]
+            time_step = np.abs(self.time_fft-time_avg).argmin()
+            if time_step > len(self.time_fft)/2: time_step = len(self.time_fft) -1
+            j=0
 
-        while (j+1)*time_step<len(self.time_fft):
+            while (j+1)*time_step<len(self.time_fft):
+                freq=[]
+                SPL=[]
+                for i in range(Pts):
 
-            #time_step = 5
-            freq=[]
+                        # AQUÍ DEBERÍA TENER EN CUENTA TAMBIÉN LA DESVIACIÓN ESTÁNDAR POR HACER EL RMS EN FRECUENCIAS
+
+                        SPL.append(self.rms_to_SPL(self.signal_to_rms(self.signal_fft[i*step:(i+1)*step , j*time_step:(j+1)*time_step])))
+                        freq.append(np.mean(self.freq_fft[i*step:(i+1)*step]))
+                SPLs.append(SPL)
+                j+=1
+
+            #Cálculo de la desviación estándar y error de la señal en cada uno de sus puntos
+            SPLs=np.array(SPLs)
+            mean=[]
+            std=[]
+
+            for f in range(SPLs.shape[1]):
+                mean.append(np.mean(SPLs[:,f])) #debería hacerse la media de cada rango de frecuencias también!
+                std.append(np.std(SPLs[:,f]))
+
+
+            error=std/np.sqrt(len(std))
+            #error*=20 #aumento artificial para verlo más claro durante las pruebas de desarrollo
+            self.data_freq_SPL = np.array([freq, mean, error])
+
+        # Transmission Loss with respect to source
+        elif method=='TL':
+            #We make sure that the involved objects have had their SPL vs. freq calculated
+            if not hasattr(self, 'data_freq_SPL'):   self.SPL_vs_freq(Pts=Pts, time_avg=time_avg, plot=False)
+            if not hasattr(source, 'data_freq_SPL'): source.SPL_vs_freq(Pts=Pts, time_avg=time_avg, plot=False)
+
             SPL=[]
+            freq=source.data_freq_SPL[0]
+            if legend==False: legend='Trasmission Loss'
+
             for i in range(Pts):
-                if (source==False):
-                    SPL.append(self.rms_to_SPL(self.signal_to_rms(self.signal_fft[i*step:(i+1)*step , j*time_step:(j+1)*time_step])))
-                    freq.append(np.mean(self.freq_fft[i*step:(i+1)*step]))
-                
-                #elif(method=='log'):
-                #    SPL.append(self.rms_to_SPL(self.signal_to_rms(source.signal_fft[i*step:(i+1)*step][:] - self.signal_fft[i*step:(i+1)*step][:])))
-                #    freq.append(np.mean(self.freq_fft[i*step:(i+1)*step]))
-                #if(legend==False): legend+=' TL'
-                #elif(method=='lineal'):
-                #    SPL_source = self.rms_to_SPL(self.signal_to_rms(source.signal_fft[i*step:(i+1)*step][:]))
-                #    SPL_TL = self.rms_to_SPL(self.signal_to_rms(source.signal_fft[i*step:(i+1)*step][:]
-                #                                                - self.signal_fft[i*step:(i+1)*step][:]))
-                #    freq.append(np.mean(self.freq_fft[i*step:(i+1)*step]))
-                #    if(legend==False): legend+=' (Source - Measure)'
-                #    SPL.append(SPL_source-SPL_TL)
-                #    plt.ylabel('ΔSPL (dB re 1μPa)')
+                    SPL.append( self.rms_to_SPL( 10** (source.data_freq_SPL[1,i] /20) - 10 ** (self.data_freq_SPL[1,i]/20 )))
 
-            SPLs.append(SPL)
-            j+=1
+            error= self.data_freq_SPL[2]+source.data_freq_SPL[2]
+            mean=SPL
+
+            self.data_freq_SPL_TL = np.array([freq, mean, error])
+        # -------------------------------------------
+        # Difference between source and TL. Flat line if all frequencies mitigate the same
+        elif method=='Source-TL':
+            #We make sure that the involved objects have had their SPL vs. freq calculated
+            if not hasattr(self, 'data_freq_SPL_TL'): self.SPL_vs_freq(source= source, method='TL', Pts=Pts, time_avg=time_avg, plot=False)
+            if not hasattr(source, 'data_freq_SPL'):  source.SPL_vs_freq(Pts=Pts, time_avg=time_avg, plot=False)
+            SPL=source.data_freq_SPL[1]-self.data_freq_SPL_TL[1]
+            freq=source.data_freq_SPL[0]
+            if legend==False: legend='Source - Trasmission Loss'
+            if plot: plt.ylabel('ΔSPL (dB re 1μPa)')
+            mean=SPL
+            error= self.data_freq_SPL_TL[2]+source.data_freq_SPL[2]
+        # -------------------------------------------
+
+        if plot:
+            plt.plot(freq, mean, label=legend)
+            plt.fill_between(freq, mean-error, mean+error, alpha=0.5)
+            plt.legend()
+            plt.grid(True)
+
+        return mean
 
 
-        SPLs=np.array(SPLs)
-        print(SPLs.shape)
-        print(len(freq))
-        mean=[]
-        std=[]
-
-        for f in range(SPLs.shape[1]):
-            mean.append(np.mean(SPLs[:,f]))
-            std.append(np.std(SPLs[:,f]))
-
-        error=std/np.sqrt(len(std))
-        print(std)
-
-        plt.plot(freq, mean, label=legend)
-        plt.fill_between(freq, mean-error, mean+error, alpha=0.5)
-        plt.grid()
-
-        return SPL
-    
 
 
     def shroeder_integration(self, frequency=False, start_time=0, end_time=False, plot=True):
@@ -474,7 +501,6 @@ class audio:
 
                 x1_guess, x2_guess, x0_guess = p0
 
-                print(a,b)
 
 
                 # Fit Xiang
@@ -499,9 +525,7 @@ class audio:
                             x1 * np.exp(-x2 * time[idx_drop[0]:]) + x0*(len(time[idx_drop[0]:])-time[idx_drop[0]:]),
                             linestyle='--', c='grey')
                 
-                print(x0,x1,x2)
                 error=np.sqrt(np.diag(pcov))
-                print(error)
                 reverb_time = 13.8/b
 
                 if(plot==True):
